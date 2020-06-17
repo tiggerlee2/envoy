@@ -57,21 +57,21 @@ envoy_extension_cc_test(
     ],
 )
 
-envoy_extension_cc_test(
-    name = "wasm_filter_stress_test",
-    size = "large",
-    srcs = ["wasm_filter_stress_test.cc"],
-    data = [
-        "//test/extensions/filters/http/wasm/test_data:modules",
-    ],
-    extension_name = "envoy.filters.http.wasm",
-    external_deps = ["abseil_optional"],
-    deps = [
-        "//source/extensions/common/wasm:wasm_lib",
-        "//source/extensions/filters/http/wasm:config",
-        "//source/extensions/wasm:config",
-        "//test/proto:helloworld_proto_cc_proto",
-        "//test/stress:stress_test_lib",
-        "//test/test_common:environment_lib",
-    ],
-)
+#envoy_extension_cc_test(
+#    name = "wasm_filter_stress_test",
+#    size = "large",
+#    srcs = ["wasm_filter_stress_test.cc"],
+#    data = [
+#        "//test/extensions/filters/http/wasm/test_data:modules",
+#    ],
+#    extension_name = "envoy.filters.http.wasm",
+#    external_deps = ["abseil_optional"],
+#    deps = [
+#        "//source/extensions/common/wasm:wasm_lib",
+#        "//source/extensions/filters/http/wasm:config",
+#        "//source/extensions/wasm:config",
+#        "//test/proto:helloworld_proto_cc_proto",
+#        "//test/stress:stress_test_lib",
+#        "//test/test_common:environment_lib",
+#    ],
+#)
