@@ -136,8 +136,8 @@ envoy_cc_test(
     deps = [
         "//source/common/common:matchers_lib",
         "//source/common/config:metadata_lib",
-        "//test/test_common:utility_lib",
         "//source/common/protobuf:utility_lib",
+        "//test/test_common:utility_lib",
         "@envoy_api//envoy/config/core/v3:pkg_cc_proto",
         "@envoy_api//envoy/type/matcher/v3:pkg_cc_proto",
     ],
@@ -197,6 +197,15 @@ envoy_cc_test(
     srcs = ["stack_array_test.cc"],
     deps = [
         "//source/common/common:stack_array",
+    ],
+)
+
+envoy_cc_test(
+    name = "basic_resource_impl_test",
+    srcs = ["basic_resource_impl_test.cc"],
+    deps = [
+        "//source/common/common:basic_resource_lib",
+        "//test/mocks/runtime:runtime_mocks",
     ],
 )
 

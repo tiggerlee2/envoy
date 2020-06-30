@@ -19,6 +19,7 @@
 
 #include "common/buffer/buffer_impl.h"
 #include "common/buffer/zero_copy_input_stream_impl.h"
+#include "common/common/basic_resource_impl.h"
 #include "common/common/callback_impl.h"
 #include "common/common/linked_object.h"
 #include "common/common/lock_guard.h"
@@ -417,7 +418,9 @@ public:
 
   FakeHttpConnection(SharedConnectionWrapper& shared_connection, Stats::Store& store, Type type,
                      Event::TestTimeSystem& time_system, uint32_t max_request_headers_kb,
-                     uint32_t max_request_headers_count);
+                     uint32_t max_request_headers_count,
+                     envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
+                         headers_with_underscores_action);
 
   // By default waitForNewStream assumes the next event is a new stream and
   // returns AssertionFailure if an unexpected event occurs. If a caller truly
@@ -558,11 +561,13 @@ public:
 
   // Returns the new connection via the connection argument.
   ABSL_MUST_USE_RESULT
-  testing::AssertionResult
-  waitForHttpConnection(Event::Dispatcher& client_dispatcher, FakeHttpConnectionPtr& connection,
-                        std::chrono::milliseconds timeout = TestUtility::DefaultTimeout,
-                        uint32_t max_request_headers_kb = Http::DEFAULT_MAX_REQUEST_HEADERS_KB,
-                        uint32_t max_request_headers_count = Http::DEFAULT_MAX_HEADERS_COUNT);
+  testing::AssertionResult waitForHttpConnection(
+      Event::Dispatcher& client_dispatcher, FakeHttpConnectionPtr& connection,
+      std::chrono::milliseconds timeout = TestUtility::DefaultTimeout,
+      uint32_t max_request_headers_kb = Http::DEFAULT_MAX_REQUEST_HEADERS_KB,
+      uint32_t max_request_headers_count = Http::DEFAULT_MAX_HEADERS_COUNT,
+      envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
+          headers_with_underscores_action = envoy::config::core::v3::HttpProtocolOptions::ALLOW);
 
   ABSL_MUST_USE_RESULT
   testing::AssertionResult
@@ -680,11 +685,18 @@ private:
     envoy::config::core::v3::TrafficDirection direction() const override {
       return envoy::config::core::v3::UNSPECIFIED;
     }
+    ResourceLimit& openConnections() override { return connection_resource_; }
+
+    void setMaxConnections(const uint32_t num_connections) {
+      connection_resource_.setMax(num_connections);
+    }
+    void clearMaxConnections() { connection_resource_.resetMax(); }
 
     FakeUpstream& parent_;
     const std::string name_;
     Network::NopConnectionBalancerImpl connection_balancer_;
     const Network::ActiveUdpListenerFactoryPtr udp_listener_factory_;
+    BasicResourceLimitImpl connection_resource_;
   };
 
   void threadRoutine();

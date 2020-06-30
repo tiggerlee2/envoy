@@ -129,7 +129,8 @@ public:
 
   void onAccept(ConnectionSocketPtr&& socket) override { onAccept_(socket); }
 
-  MOCK_METHOD1(onAccept_, void(ConnectionSocketPtr& socket));
+  MOCK_METHOD(void, onAccept_, (ConnectionSocketPtr & socket));
+  MOCK_METHOD(void, onReject, ());
 };
 
 class MockUdpListenerCallbacks : public UdpListenerCallbacks {
@@ -315,6 +316,7 @@ public:
   MOCK_CONST_METHOD0(name, const std::string&());
   MOCK_METHOD0(udpListenerFactory, const Network::ActiveUdpListenerFactory*());
   MOCK_METHOD0(connectionBalancer, ConnectionBalancer&());
+  MOCK_METHOD0(openConnections, ResourceLimit&());
 
   envoy::config::core::v3::TrafficDirection direction() const override {
     return envoy::config::core::v3::UNSPECIFIED;

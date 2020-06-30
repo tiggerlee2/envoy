@@ -48,9 +48,9 @@ std::string createHeaderFragment(int num_headers) {
 class Http1ServerConnectionImplTest : public testing::Test {
 public:
   void initialize() {
-    codec_ =
-        std::make_unique<ServerConnectionImpl>(connection_, store_, callbacks_, codec_settings_,
-                                               max_request_headers_kb_, max_request_headers_count_);
+    codec_ = std::make_unique<ServerConnectionImpl>(
+        connection_, store_, callbacks_, codec_settings_, max_request_headers_kb_,
+        max_request_headers_count_, headers_with_underscores_action_);
   }
 
   NiceMock<Network::MockConnection> connection_;
@@ -90,6 +90,8 @@ public:
 protected:
   uint32_t max_request_headers_kb_{Http::DEFAULT_MAX_REQUEST_HEADERS_KB};
   uint32_t max_request_headers_count_{Http::DEFAULT_MAX_HEADERS_COUNT};
+  envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
+      headers_with_underscores_action_{envoy::config::core::v3::HttpProtocolOptions::ALLOW};
   Stats::IsolatedStoreImpl store_;
 };
 
@@ -103,9 +105,9 @@ void Http1ServerConnectionImplTest::expect400(Protocol p, bool allow_absolute_ur
 
   if (allow_absolute_url) {
     codec_settings_.allow_absolute_url_ = allow_absolute_url;
-    codec_ =
-        std::make_unique<ServerConnectionImpl>(connection_, store_, callbacks_, codec_settings_,
-                                               max_request_headers_kb_, max_request_headers_count_);
+    codec_ = std::make_unique<ServerConnectionImpl>(
+        connection_, store_, callbacks_, codec_settings_, max_request_headers_kb_,
+        max_request_headers_count_, envoy::config::core::v3::HttpProtocolOptions::ALLOW);
   }
 
   Http::MockStreamDecoder decoder;
@@ -132,9 +134,9 @@ void Http1ServerConnectionImplTest::expectHeadersTest(Protocol p, bool allow_abs
   // Make a new 'codec' with the right settings
   if (allow_absolute_url) {
     codec_settings_.allow_absolute_url_ = allow_absolute_url;
-    codec_ =
-        std::make_unique<ServerConnectionImpl>(connection_, store_, callbacks_, codec_settings_,
-                                               max_request_headers_kb_, max_request_headers_count_);
+    codec_ = std::make_unique<ServerConnectionImpl>(
+        connection_, store_, callbacks_, codec_settings_, max_request_headers_kb_,
+        max_request_headers_count_, envoy::config::core::v3::HttpProtocolOptions::ALLOW);
   }
 
   Http::MockStreamDecoder decoder;
@@ -152,9 +154,9 @@ void Http1ServerConnectionImplTest::expectTrailersTest(bool enable_trailers) {
   // Make a new 'codec' with the right settings
   if (enable_trailers) {
     codec_settings_.enable_trailers_ = enable_trailers;
-    codec_ =
-        std::make_unique<ServerConnectionImpl>(connection_, store_, callbacks_, codec_settings_,
-                                               max_request_headers_kb_, max_request_headers_count_);
+    codec_ = std::make_unique<ServerConnectionImpl>(
+        connection_, store_, callbacks_, codec_settings_, max_request_headers_kb_,
+        max_request_headers_count_, envoy::config::core::v3::HttpProtocolOptions::ALLOW);
   }
 
   StrictMock<Http::MockStreamDecoder> decoder;
@@ -183,9 +185,9 @@ void Http1ServerConnectionImplTest::testTrailersExceedLimit(std::string trailer_
   initialize();
   // Make a new 'codec' with the right settings
   codec_settings_.enable_trailers_ = enable_trailers;
-  codec_ =
-      std::make_unique<ServerConnectionImpl>(connection_, store_, callbacks_, codec_settings_,
-                                             max_request_headers_kb_, max_request_headers_count_);
+  codec_ = std::make_unique<ServerConnectionImpl>(
+      connection_, store_, callbacks_, codec_settings_, max_request_headers_kb_,
+      max_request_headers_count_, envoy::config::core::v3::HttpProtocolOptions::ALLOW);
   std::string exception_reason;
   NiceMock<Http::MockStreamDecoder> decoder;
   EXPECT_CALL(callbacks_, newStream(_, _))
@@ -206,7 +208,7 @@ void Http1ServerConnectionImplTest::testTrailersExceedLimit(std::string trailer_
                            "4\r\n"
                            "body\r\n0\r\n");
   codec_->dispatch(buffer);
-  buffer = Buffer::OwnedImpl(trailer_string + "\r\n\r\n");
+  buffer = Buffer::OwnedImpl(trailer_string);
   if (enable_trailers) {
     EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException,
                               "trailers size exceeds limit");
@@ -775,6 +777,72 @@ TEST_F(Http1ServerConnectionImplTest, HeaderInvalidCharsRejection) {
   EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), CodecProtocolException,
                             "http/1.1 protocol error: header value contains invalid chars");
   EXPECT_EQ("http1.invalid_characters", response_encoder->getStream().responseDetails());
+}
+
+// Ensures that request headers with names containing the underscore character are allowed
+// when the option is set to allow.
+TEST_F(Http1ServerConnectionImplTest, HeaderNameWithUnderscoreAllowed) {
+  headers_with_underscores_action_ = envoy::config::core::v3::HttpProtocolOptions::ALLOW;
+  initialize();
+
+  Http::MockStreamDecoder decoder;
+  EXPECT_CALL(callbacks_, newStream(_, _)).WillOnce(ReturnRef(decoder));
+
+  TestHeaderMapImpl expected_headers{
+      {":authority", "h.com"},
+      {":path", "/"},
+      {":method", "GET"},
+      {"foo_bar", "bar"},
+  };
+  EXPECT_CALL(decoder, decodeHeaders_(HeaderMapEqual(&expected_headers), true)).Times(1);
+
+  Buffer::OwnedImpl buffer(absl::StrCat("GET / HTTP/1.1\r\nHOST: h.com\r\nfoo_bar: bar\r\n\r\n"));
+  codec_->dispatch(buffer);
+  EXPECT_EQ(0U, buffer.length());
+  EXPECT_EQ(0, store_.counter("http1.dropped_headers_with_underscores").value());
+}
+
+// Ensures that request headers with names containing the underscore character are dropped
+// when the option is set to drop headers.
+TEST_F(Http1ServerConnectionImplTest, HeaderNameWithUnderscoreAreDropped) {
+  headers_with_underscores_action_ = envoy::config::core::v3::HttpProtocolOptions::DROP_HEADER;
+  initialize();
+
+  Http::MockStreamDecoder decoder;
+  EXPECT_CALL(callbacks_, newStream(_, _)).WillOnce(ReturnRef(decoder));
+
+  TestHeaderMapImpl expected_headers{
+      {":authority", "h.com"},
+      {":path", "/"},
+      {":method", "GET"},
+  };
+  EXPECT_CALL(decoder, decodeHeaders_(HeaderMapEqual(&expected_headers), true)).Times(1);
+
+  Buffer::OwnedImpl buffer(absl::StrCat("GET / HTTP/1.1\r\nHOST: h.com\r\nfoo_bar: bar\r\n\r\n"));
+  codec_->dispatch(buffer);
+  EXPECT_EQ(0U, buffer.length());
+  EXPECT_EQ(1, store_.counter("http1.dropped_headers_with_underscores").value());
+}
+
+// Ensures that request with header names containing the underscore character are rejected
+// when the option is set to reject request.
+TEST_F(Http1ServerConnectionImplTest, HeaderNameWithUnderscoreCauseRequestRejected) {
+  headers_with_underscores_action_ = envoy::config::core::v3::HttpProtocolOptions::REJECT_REQUEST;
+  initialize();
+
+  Http::MockStreamDecoder decoder;
+  Http::StreamEncoder* response_encoder = nullptr;
+  EXPECT_CALL(callbacks_, newStream(_, _))
+      .WillOnce(Invoke([&](Http::StreamEncoder& encoder, bool) -> Http::StreamDecoder& {
+        response_encoder = &encoder;
+        return decoder;
+      }));
+
+  Buffer::OwnedImpl buffer(absl::StrCat("GET / HTTP/1.1\r\nHOST: h.com\r\nfoo_bar: bar\r\n\r\n"));
+  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException,
+                            "http/1.1 protocol error: header name contains underscores");
+  EXPECT_EQ("http1.invalid_characters", response_encoder->getStream().responseDetails());
+  EXPECT_EQ(1, store_.counter("http1.requests_rejected_with_underscores_in_headers").value());
 }
 
 TEST_F(Http1ServerConnectionImplTest, HeaderInvalidAuthority) {
@@ -1737,26 +1805,58 @@ TEST_F(Http1ClientConnectionImplTest, HighwatermarkMultipleResponses) {
 
 TEST_F(Http1ServerConnectionImplTest, LargeTrailersRejected) {
   // Default limit of 60 KiB
-  std::string long_string = "big: " + std::string(60 * 1024, 'q') + "\r\n";
+  std::string long_string = "big: " + std::string(60 * 1024, 'q') + "\r\n\r\n\r\n";
+  testTrailersExceedLimit(long_string, true);
+}
+
+TEST_F(Http1ServerConnectionImplTest, LargeTrailerFieldRejected) {
+  // Construct partial headers with a long field name that exceeds the default limit of 60KiB.
+  std::string long_string = "bigfield" + std::string(60 * 1024, 'q');
   testTrailersExceedLimit(long_string, true);
 }
 
 // Tests that the default limit for the number of request headers is 100.
 TEST_F(Http1ServerConnectionImplTest, ManyTrailersRejected) {
   // Send a request with 101 headers.
-  testTrailersExceedLimit(createHeaderFragment(101), true);
+  testTrailersExceedLimit(createHeaderFragment(101) + "\r\n\r\n", true);
 }
 
 TEST_F(Http1ServerConnectionImplTest, LargeTrailersRejectedIgnored) {
   // Default limit of 60 KiB
-  std::string long_string = "big: " + std::string(60 * 1024, 'q') + "\r\n";
+  std::string long_string = "big: " + std::string(60 * 1024, 'q') + "\r\n\r\n\r\n";
+  testTrailersExceedLimit(long_string, false);
+}
+
+TEST_F(Http1ServerConnectionImplTest, LargeTrailerFieldRejectedIgnored) {
+  // Default limit of 60 KiB
+  std::string long_string = "bigfield" + std::string(60 * 1024, 'q') + ": value\r\n\r\n\r\n";
   testTrailersExceedLimit(long_string, false);
 }
 
 // Tests that the default limit for the number of request headers is 100.
 TEST_F(Http1ServerConnectionImplTest, ManyTrailersIgnored) {
   // Send a request with 101 headers.
-  testTrailersExceedLimit(createHeaderFragment(101), false);
+  testTrailersExceedLimit(createHeaderFragment(101) + "\r\n\r\n", false);
+}
+
+TEST_F(Http1ServerConnectionImplTest, LargeRequestUrlRejected) {
+  initialize();
+
+  std::string exception_reason;
+  NiceMock<MockStreamDecoder> decoder;
+  Http::StreamEncoder* response_encoder = nullptr;
+  EXPECT_CALL(callbacks_, newStream(_, _))
+      .WillOnce(Invoke([&](StreamEncoder& encoder, bool) -> StreamDecoder& {
+        response_encoder = &encoder;
+        return decoder;
+      }));
+
+  // Default limit of 60 KiB
+  std::string long_url = "/" + std::string(60 * 1024, 'q');
+  Buffer::OwnedImpl buffer("GET " + long_url + " HTTP/1.1\r\n");
+
+  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
+  EXPECT_EQ("http1.headers_too_large", response_encoder->getStream().responseDetails());
 }
 
 TEST_F(Http1ServerConnectionImplTest, LargeRequestHeadersRejected) {
@@ -1842,8 +1942,24 @@ TEST_F(Http1ServerConnectionImplTest, ManyRequestHeadersAccepted) {
   testRequestHeadersAccepted(createHeaderFragment(150));
 }
 
-// Tests that response headers of 80 kB fails.
-TEST_F(Http1ClientConnectionImplTest, LargeResponseHeadersRejected) {
+// Tests that incomplete response headers of 80 kB header value fails.
+TEST_F(Http1ClientConnectionImplTest, ResponseHeadersWithLargeValueRejected) {
+  initialize();
+
+  NiceMock<MockStreamDecoder> response_decoder;
+  Http::StreamEncoder& request_encoder = codec_->newStream(response_decoder);
+  TestHeaderMapImpl headers{{":method", "GET"}, {":path", "/"}, {":authority", "host"}};
+  request_encoder.encodeHeaders(headers, true);
+
+  Buffer::OwnedImpl buffer("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
+  codec_->dispatch(buffer);
+  std::string long_header = "big: " + std::string(80 * 1024, 'q');
+  buffer = Buffer::OwnedImpl(long_header);
+  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
+}
+
+// Tests that incomplete response headers with a 80 kB header field fails.
+TEST_F(Http1ClientConnectionImplTest, ResponseHeadersWithLargeFieldRejected) {
   initialize();
 
   NiceMock<Http::MockStreamDecoder> response_decoder;
@@ -1853,7 +1969,7 @@ TEST_F(Http1ClientConnectionImplTest, LargeResponseHeadersRejected) {
 
   Buffer::OwnedImpl buffer("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
   codec_->dispatch(buffer);
-  std::string long_header = "big: " + std::string(80 * 1024, 'q') + "\r\n";
+  std::string long_header = "bigfield" + std::string(80 * 1024, 'q');
   buffer = Buffer::OwnedImpl(long_header);
   EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
 }
