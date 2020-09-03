@@ -230,6 +230,9 @@ protected:
 
     bool buffers_overrun() const { return read_disable_count_ > 0; }
 
+    void encodeDataHelper(Buffer::Instance& data, bool end_stream,
+                          bool skip_encoding_empty_trailers);
+
     ConnectionImpl& parent_;
     HeaderMapImplPtr headers_;
     StreamDecoder* decoder_{};
@@ -396,6 +399,13 @@ protected:
   // Maximum number of inbound WINDOW_UPDATE frames per outbound DATA frame sent. Initialized
   // from corresponding http2_protocol_options. Default value is 10.
   const uint32_t max_inbound_window_update_frames_per_data_frame_sent_;
+
+  // Some browsers (e.g. WebKit-based browsers: https://bugs.webkit.org/show_bug.cgi?id=210108) have
+  // a problem with processing empty trailers (END_STREAM | END_HEADERS with zero length HEADERS) of
+  // an HTTP/2 response as reported here: https://github.com/envoyproxy/envoy/issues/10514. This is
+  // controlled by "envoy.reloadable_features.http2_skip_encoding_empty_trailers" runtime feature
+  // flag.
+  const bool skip_encoding_empty_trailers_;
 
 private:
   virtual ConnectionCallbacks& callbacks() PURE;
