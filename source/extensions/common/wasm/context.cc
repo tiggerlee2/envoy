@@ -448,13 +448,13 @@ Context::FindValue(absl::string_view name, Protobuf::Arena* arena) const {
   case PropertyToken::REQUEST:
     if (info) {
       return CelValue::CreateMap(Protobuf::Arena::Create<Filters::Common::Expr::RequestWrapper>(
-          arena, request_headers_ ? request_headers_ : access_log_request_headers_, *info));
+          arena, *arena, request_headers_ ? request_headers_ : access_log_request_headers_, *info));
     }
     break;
   case PropertyToken::RESPONSE:
     if (info) {
       return CelValue::CreateMap(Protobuf::Arena::Create<Filters::Common::Expr::ResponseWrapper>(
-          arena, response_headers_ ? response_headers_ : access_log_response_headers_,
+          arena, *arena, response_headers_ ? response_headers_ : access_log_response_headers_,
           response_trailers_ ? response_trailers_ : access_log_response_trailers_, *info));
     }
     break;
